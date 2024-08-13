@@ -2,6 +2,8 @@ from __future__ import division
 
 import os
 
+from functools import lru_cache
+
 import six
 import numpy as np
 from rdkit import Chem
@@ -118,6 +120,12 @@ mc_gowan_volume = PeriodicTable.load("mc_gowan_volume.txt")
 _table = Chem.GetPeriodicTable()
 
 
+@lru_cache
+def GetNOuterElecs(N):
+    return _table.GetNOuterElecs(N)
+
+
+@lru_cache
 def GetElementSymbol(i):
     return _table.GetElementSymbol(i)
 
@@ -143,7 +151,7 @@ def get_valence_electrons(atom):
     if N == 1:
         return 0
 
-    Zv = _table.GetNOuterElecs(N) - atom.GetFormalCharge()
+    Zv = GetNOuterElecs(N) - atom.GetFormalCharge()
     Z = atom.GetAtomicNum() - atom.GetFormalCharge()
     hi = atom.GetTotalNumHs()
     he = sum(1 for a in atom.GetNeighbors() if a.GetAtomicNum() == 1)
@@ -170,20 +178,29 @@ def get_intrinsic_state(atom):
     return ((2.0 / period[i]) ** 2 * dv + 1) / d
 
 
-def get_core_count(atom):
-    Z = atom.GetAtomicNum()
-    if Z == 1:
+@lru_cache
+def get_core_count_cache(atomic_number: int) -> float:
+    if atomic_number == 1:
         return 0.0
 
-    Zv = _table.GetNOuterElecs(Z)
-    PN = period[Z]
+    Zv = GetNOuterElecs(atomic_number)
+    PN = period[atomic_number]
 
-    return (Z - Zv) / (Zv * (PN - 1))
+    return (atomic_number - Zv) / (Zv * (PN - 1))
+
+
+def get_core_count(atom):
+    return get_core_count_cache(atom.GetAtomicNum())
+
+
+@lru_cache
+def get_eta_epsilson_cache(atomic_number: int) -> float:
+    Zv = GetNOuterElecs(atomic_number)
+    return 0.3 * Zv - get_core_count_cache(atomic_number)
 
 
 def get_eta_epsilon(atom):
-    Zv = _table.GetNOuterElecs(atom.GetAtomicNum())
-    return 0.3 * Zv - get_core_count(atom)
+    return get_eta_epsilson_cache(atom.GetAtomicNum())
 
 
 def get_eta_beta_sigma(atom):
@@ -222,7 +239,7 @@ def get_eta_beta_delta(atom):
     if (
         atom.GetIsAromatic()
         or atom.IsInRing()
-        or _table.GetNOuterElecs(atom.GetAtomicNum()) - atom.GetTotalValence() <= 0
+        or GetNOuterElecs(atom.GetAtomicNum()) - atom.GetTotalValence() <= 0
     ):
         return 0.0
 
